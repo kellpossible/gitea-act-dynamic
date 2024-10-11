@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,6 +48,7 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 		break
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Header().Set("WWW-Authenticate", "Basic realm=\"User Visible Realm\", charset=\"UTF-8\"")
 		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
 		return
 	}
@@ -53,7 +56,38 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(BuildVersion))
 }
 
-func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan struct{}, cfg *Config) {
+type Auth struct {
+	Username string
+	Password string
+}
+
+func parseAuthorizationHeader(authHeader string) (Auth, error) {
+	if authHeader == "" {
+		return Auth{}, fmt.Errorf("authorization header is empty")
+	}
+	// Remove "Basic " prefix
+	authHeader = strings.TrimPrefix(authHeader, "Basic ")
+
+	// Decode the base64 encoded part
+	decoded, err := base64.StdEncoding.DecodeString(authHeader)
+	if err != nil {
+		return Auth{}, fmt.Errorf("error decoding base64: %s", err)
+	}
+
+	// Split the decoded string into username and password
+	credentials := strings.SplitN(string(decoded), ":", 2)
+	if len(credentials) != 2 {
+		return Auth{}, fmt.Errorf("invalid format. expected username:password")
+	}
+
+	username := credentials[0]
+	password := credentials[1]
+
+	return Auth{Username: username, Password: password}, nil
+}
+
+// Returns true if auth checks passed
+func handleWebhookAuth(w http.ResponseWriter, r *http.Request, cfg *Config) bool {
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPost:
@@ -61,15 +95,32 @@ func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan str
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
-		return
+		return false
 	}
+
+	authorized := false
 	authHeader := r.Header.Get("Authorization")
-	if authHeader != fmt.Sprintf("Basic %s", cfg.password) {
+	if auth, err := parseAuthorizationHeader(authHeader); err == nil && auth.Password == cfg.password {
+		authorized = true
+	}
+	if r.URL.Query().Get("password") == cfg.password {
+		authorized = true
+	}
+	if !authorized {
 		slog.Warn("Received unauthorized request", "request", r)
+		w.Header().Set("WWW-Authenticate", "Basic realm=\"User Visible Realm\", charset=\"UTF-8\"")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("UNAUTHORIZED"))
+		return false
+	}
+	return true
+}
+
+func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan struct{}, cfg *Config) {
+	if !handleWebhookAuth(w, r, cfg) {
 		return
 	}
+
 	slog.Info("Received start webhook event")
 	receivedStart <- struct{}{}
 	w.WriteHeader(http.StatusOK)
@@ -77,22 +128,10 @@ func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan str
 }
 
 func stopHandler(w http.ResponseWriter, r *http.Request, receivedStop chan struct{}, cfg *Config) {
-	switch r.Method {
-	case http.MethodGet:
-	case http.MethodPost:
-		break
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
+	if !handleWebhookAuth(w, r, cfg) {
 		return
 	}
-	authHeader := r.Header.Get("Authorization")
-	if authHeader != fmt.Sprintf("Basic %s", cfg.password) {
-		slog.Warn("Received unauthorized request", "request", r)
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("UNAUTHORIZED"))
-		return
-	}
+
 	slog.Info("Received stop webhook event")
 	receivedStop <- struct{}{}
 	w.WriteHeader(http.StatusOK)
