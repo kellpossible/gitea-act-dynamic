@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +17,8 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/joho/godotenv"
 	"github.com/phsym/console-slog"
+	"github.com/thejerf/suture/v4"
+	"github.com/thejerf/sutureslog"
 )
 
 // The version of the software at build time.
@@ -52,7 +53,7 @@ func versionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(BuildVersion))
 }
 
-func webhookHandler(w http.ResponseWriter, r *http.Request, receivedWebhook chan struct{}, cfg *Config) {
+func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan struct{}, cfg *Config) {
 	switch r.Method {
 	case http.MethodGet:
 	case http.MethodPost:
@@ -69,8 +70,31 @@ func webhookHandler(w http.ResponseWriter, r *http.Request, receivedWebhook chan
 		w.Write([]byte("UNAUTHORIZED"))
 		return
 	}
-	slog.Info("Received webhook event")
-	receivedWebhook <- struct{}{}
+	slog.Info("Received start webhook event")
+	receivedStart <- struct{}{}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func stopHandler(w http.ResponseWriter, r *http.Request, receivedStop chan struct{}, cfg *Config) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		break
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
+		return
+	}
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != fmt.Sprintf("Basic %s", cfg.password) {
+		slog.Warn("Received unauthorized request", "request", r)
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("UNAUTHORIZED"))
+		return
+	}
+	slog.Info("Received stop webhook event")
+	receivedStop <- struct{}{}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -114,13 +138,36 @@ func isEC2InstanceRunning(cfg aws.Config, ID string) (bool, error) {
 
 }
 
-func instanceManager(cfg *Config, receivedWebhook chan struct{}) {
+type HttpService struct {
+	cfg           *Config
+	receivedStart chan struct{}
+	receivedStop  chan struct{}
+}
+
+func (s *HttpService) Serve(ctx context.Context) error {
+	http.HandleFunc("/start", func(w http.ResponseWriter, r *http.Request) {
+		startHandler(w, r, s.receivedStart, s.cfg)
+	})
+	http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
+		stopHandler(w, r, s.receivedStop, s.cfg)
+	})
+	http.HandleFunc("/version", versionHandler)
+	return http.ListenAndServe(s.cfg.Address, nil)
+}
+
+type InstancemanagerService struct {
+	cfg           *Config
+	receivedStart chan struct{}
+	receivedStop  chan struct{}
+}
+
+func (s *InstancemanagerService) Serve(ctx context.Context) error {
 	lastWebhookReceivedTime := time.Now()
 	var instanceRunning bool
 	err := backoff.Retry(func() error {
 		var err error
 		slog.Debug("Checking whether EC2 Instance is running...")
-		instanceRunning, err = isEC2InstanceRunning(cfg.aws, cfg.InstanceID)
+		instanceRunning, err = isEC2InstanceRunning(s.cfg.aws, s.cfg.InstanceID)
 		return err
 	}, backoff.NewExponentialBackOff())
 	if err != nil {
@@ -131,39 +178,57 @@ func instanceManager(cfg *Config, receivedWebhook chan struct{}) {
 
 	for {
 		select {
-		case <-receivedWebhook:
+		case <-s.receivedStart:
 			lastWebhookReceivedTime = time.Now()
 			if !instanceRunning {
 				err := backoff.Retry(func() error {
-					slog.Debug("Starting EC2 Instance", "ID", cfg.InstanceID)
-					err := startEC2Instance(cfg.aws, cfg.InstanceID)
+					slog.Debug("Starting EC2 Instance", "ID", s.cfg.InstanceID)
+					err := startEC2Instance(s.cfg.aws, s.cfg.InstanceID)
 					if err == nil {
-						slog.Info("Successfully started EC2 instance", "ID", cfg.InstanceID)
+						slog.Info("Successfully started EC2 instance", "ID", s.cfg.InstanceID)
 						instanceRunning = true
 					} else {
-						slog.Error("Error starting EC2 Instance", "error", err, "ID", cfg.InstanceID)
+						slog.Error("Error starting EC2 Instance", "error", err, "ID", s.cfg.InstanceID)
 						return err
 					}
 					return nil
 				}, backoff.WithMaxRetries(backoff.NewExponentialBackOff(), 10))
 				if err != nil {
-					slog.Error("Max backoff attempts exceeded, skipping webhook event", "error", err)
+					slog.Error("Max backoff attempts exceeded, skipping start event", "error", err)
 				}
 			}
 			continue
+		case <-s.receivedStop:
+			if instanceRunning {
+				err := backoff.Retry(func() error {
+					slog.Debug("Stopping EC2 Instance", "ID", s.cfg.InstanceID)
+					err := stopEC2Instance(s.cfg.aws, s.cfg.InstanceID)
+					if err == nil {
+						slog.Info("Successfully stopped EC2 instance", "ID", s.cfg.InstanceID)
+						instanceRunning = true
+					} else {
+						slog.Error("Error stopping EC2 Instance", "error", err, "ID", s.cfg.InstanceID)
+						return err
+					}
+					return nil
+				}, backoff.WithMaxRetries(backoff.NewExponentialBackOff(), 10))
+				if err != nil {
+					slog.Error("Max backoff attempts exceeded, skipping stop event", "error", err)
+				}
+			}
 		default:
 			if instanceRunning {
-				timeout := time.Duration(cfg.Timeout)
+				timeout := time.Duration(s.cfg.Timeout)
 				if time.Since(lastWebhookReceivedTime) > timeout {
 					slog.Info(fmt.Sprintf("No webhooks received in the past %s. Stopping the EC2 instance.", timeout))
 					err := backoff.Retry(func() error {
-						slog.Debug("Stopping EC2 Instance", "ID", cfg.InstanceID)
-						err := stopEC2Instance(cfg.aws, cfg.InstanceID)
+						slog.Debug("Stopping EC2 Instance", "ID", s.cfg.InstanceID)
+						err := stopEC2Instance(s.cfg.aws, s.cfg.InstanceID)
 						if err != nil {
-							slog.Error("Failed to stop EC2 instance", "error", err, "ID", cfg.InstanceID)
+							slog.Error("Failed to stop EC2 instance", "error", err, "ID", s.cfg.InstanceID)
 							return err
 						}
-						slog.Info("Stopped EC2 instance", "ID", cfg.InstanceID)
+						slog.Info("Stopped EC2 instance", "ID", s.cfg.InstanceID)
 						return nil
 					}, backoff.NewExponentialBackOff())
 					if err == nil {
@@ -239,13 +304,13 @@ func main() {
 	}
 	slog.Info("Started with", "version", BuildVersion, "config", string(cfgJson))
 
-	receivedWebhook := make(chan struct{})
-	go instanceManager(cfg, receivedWebhook)
+	receivedStart := make(chan struct{})
+	receivedStop := make(chan struct{})
 
-	http.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
-		webhookHandler(w, r, receivedWebhook, cfg)
+	supervisor := suture.New("gitea-act-dynamic-supervisor", suture.Spec{
+		EventHook: (&sutureslog.Handler{Logger: logger}).MustHook(),
 	})
-	http.HandleFunc("/version", versionHandler)
-	log.Println("Starting server on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	supervisor.Add(&HttpService{cfg: cfg, receivedStart: receivedStart, receivedStop: receivedStop})
+	supervisor.Add(&InstancemanagerService{cfg: cfg, receivedStart: receivedStart, receivedStop: receivedStop})
+	supervisor.Serve(context.Background())
 }
