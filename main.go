@@ -40,11 +40,28 @@ func (d TimeoutDuration) MarshalJSON() ([]byte, error) {
 }
 
 func versionHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		break
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(BuildVersion))
 }
 
 func webhookHandler(w http.ResponseWriter, r *http.Request, receivedWebhook chan struct{}, cfg *Config) {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPost:
+		break
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(fmt.Sprintf("%s METHOD NOT ALLOWED", r.Method)))
+		return
+	}
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != fmt.Sprintf("Basic %s", cfg.password) {
 		slog.Warn("Received unauthorized request", "request", r)
@@ -220,7 +237,7 @@ func main() {
 		slog.Error("Error serializing config for display", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("Started with config", "config", string(cfgJson))
+	slog.Info("Started with", "version", BuildVersion, "config", string(cfgJson))
 
 	receivedWebhook := make(chan struct{})
 	go instanceManager(cfg, receivedWebhook)

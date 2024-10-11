@@ -7,3 +7,6 @@ docker-publish:
     just docker-build
     docker push "lfrisken/gitea-act-dynamic:latest"
     docker push "lfrisken/gitea-act-dynamic:$(./version.sh)"
+
+run:
+   go run -ldflags="-X main.BuildVersion=$(./version.sh)" .
