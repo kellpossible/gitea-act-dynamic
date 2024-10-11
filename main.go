@@ -20,17 +20,28 @@ import (
 	"github.com/phsym/console-slog"
 )
 
+// The version of the software at build time.
+//
+//nolint:gochecknoglobals
+var BuildVersion string
+
 type Config struct {
 	aws        aws.Config
 	InstanceID string `json:"instance_id"`
 	Timeout    TimeoutDuration
 	password   string
+	Address    string
 }
 
 type TimeoutDuration time.Duration
 
 func (d TimeoutDuration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(time.Duration(d).String())
+}
+
+func versionHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(BuildVersion))
 }
 
 func webhookHandler(w http.ResponseWriter, r *http.Request, receivedWebhook chan struct{}, cfg *Config) {
@@ -191,14 +202,20 @@ func main() {
 		slog.Error("Error parsing GARD__TIMEOUT environment variable as duration", "error", err)
 		os.Exit(1)
 	}
+	address := os.Getenv("GARD__ADDRESS")
+	if address == "" {
+		address = ":8080"
+	}
 
 	cfg := &Config{
 		aws:        awsCfg,
 		InstanceID: ID,
 		Timeout:    TimeoutDuration(timeout),
+		Address:    address,
+		password:   password,
 	}
 
-	cfgJson, err := json.Marshal(cfg)
+	cfgJson, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		slog.Error("Error serializing config for display", "error", err)
 		os.Exit(1)
@@ -211,6 +228,7 @@ func main() {
 	http.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
 		webhookHandler(w, r, receivedWebhook, cfg)
 	})
+	http.HandleFunc("/version", versionHandler)
 	log.Println("Starting server on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
