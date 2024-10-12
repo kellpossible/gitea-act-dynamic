@@ -130,13 +130,13 @@ func startHandler(w http.ResponseWriter, r *http.Request, receivedStart chan Sta
 	w.Write([]byte("OK"))
 }
 
-func stopHandler(w http.ResponseWriter, r *http.Request, receivedStop chan struct{}, cfg *Config) {
+func stopHandler(w http.ResponseWriter, r *http.Request, receivedStop chan StopRequest, cfg *Config) {
 	if !handleWebhookAuth(w, r, cfg) {
 		return
 	}
 
 	slog.Info("Received stop webhook event")
-	receivedStop <- struct{}{}
+	receivedStop <- StopRequest{}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -183,7 +183,7 @@ func isEC2InstanceRunning(cfg aws.Config, ID string) (bool, error) {
 type HttpService struct {
 	cfg   *Config
 	start chan StartRequest
-	stop  chan struct{}
+	stop  chan StopRequest
 }
 
 func (s *HttpService) Serve(ctx context.Context) error {
@@ -204,10 +204,12 @@ type StartRequest struct {
 	IfNotAlreadyRunning bool
 }
 
+type StopRequest struct{}
+
 type InstancemanagerService struct {
 	cfg   *Config
 	start chan StartRequest
-	stop  chan struct{}
+	stop  chan StopRequest
 }
 
 func (s *InstancemanagerService) Serve(ctx context.Context) error {
@@ -302,7 +304,7 @@ func (s *InstancemanagerService) Serve(ctx context.Context) error {
 type DatabaseWatcherService struct {
 	cfg   *Config
 	start chan StartRequest
-	stop  chan struct{}
+	stop  chan StopRequest
 }
 
 // Status represents the status of ActionRun, ActionRunJob, ActionTask, or ActionTaskStep
@@ -426,9 +428,7 @@ func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
 	previousJobs = &jobs
 
 	if incompleteJobs == 0 {
-		slog.Debug("Found no incomplete jobs, requesting instance stop in 30s")
-		time.Sleep(30 * time.Second)
-		s.stop <- struct{}{}
+		s.stop <- StopRequest{}
 	} else if newRunningJobs > 0 {
 		slog.Debug(fmt.Sprintf("Found %d new running jobs", newRunningJobs))
 		s.start <- StartRequest{IfNotAlreadyRunning: false}
@@ -508,7 +508,7 @@ func main() {
 	slog.Info("Started with", "version", BuildVersion, "config", string(cfgJson))
 
 	start := make(chan StartRequest)
-	stop := make(chan struct{})
+	stop := make(chan StopRequest)
 
 	supervisor := suture.New("gitea-act-dynamic-supervisor", suture.Spec{
 		EventHook: (&sutureslog.Handler{Logger: logger}).MustHook(),
