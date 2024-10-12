@@ -20,6 +20,7 @@ require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
+	github.com/mattn/go-sqlite3 v1.14.24 // indirect
 	github.com/phsym/console-slog v0.3.1 // indirect
 	github.com/thejerf/suture/v4 v4.0.5 // indirect
 	github.com/thejerf/sutureslog v1.0.1 // indirect
