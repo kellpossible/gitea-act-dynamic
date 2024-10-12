@@ -14,14 +14,18 @@ A tiny service that spools up an AWS instance as a Gitea act runner in response 
 | GAD__TIMEOUT          | no       | 1h                  |             |
 | GAD__DB_FILE          | no       | /path/to/gitea.db   |             |
 
+## Deployment
+
+Docker image is available on dockerhub: [`lfrisken/gitea-act-dynamic`](https://hub.docker.com/repository/docker/lfrisken/gitea-act-dynamic/general).
+
 ## Routes
 
 
-| Route      | Description                                                                                                                                          |
-| :--------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/start`   | Start the instance. Supports authentication via basic `Authorization` header (compatible with browser basic auth), or via `password` query parameter |
-| `/stop`    | Stop the instance.                                                                                                                                   |
-| `/version` | prints the version of this application.                                                                                                              |
+| Route      | Description                                                                                                                                           |
+| :--------- | :---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/start`   | Start the instance. Supports authentication via basic `Authorization` header (compatible with browser basic auth), or via `password` query parameter. |
+| `/stop`    | Stop the instance. Supports authentication via basic `Authorization` header (compatible with browser basic auth), or via `password` query parameter.  |
+| `/version` | prints the version of this application.                                                                                                               |
 
 ## Future
 
