@@ -275,7 +275,7 @@ func (s *InstancemanagerService) Serve(ctx context.Context) error {
 			if instanceRunning {
 				timeout := time.Duration(s.cfg.Timeout)
 				if time.Since(lastStartedTime) > timeout {
-					slog.Info(fmt.Sprintf("No webhooks received in the past %s. Stopping the EC2 instance.", timeout))
+					slog.Info(fmt.Sprintf("No start requests received in the past %s. Stopping the EC2 instance.", timeout))
 					err := backoff.Retry(func() error {
 						slog.Debug("Stopping EC2 Instance", "ID", s.cfg.InstanceID)
 						err := stopEC2Instance(s.cfg.aws, s.cfg.InstanceID)
@@ -422,6 +422,7 @@ func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
 	if incompleteJobs == 0 {
 		s.stop <- struct{}{}
 	} else if newRunningJobs > 0 {
+		slog.Debug(fmt.Sprintf("Found %d new running jobs", newRunningJobs))
 		s.start <- StartRequest{IfNotAlreadyRunning: false}
 	} else if waitingJobs > 0 {
 		s.start <- StartRequest{IfNotAlreadyRunning: true}
