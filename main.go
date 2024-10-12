@@ -352,7 +352,9 @@ func (s *DatabaseWatcherService) Serve(context.Context) error {
 
 // Mutable reference to jobs
 func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
-	rows, err := db.Query("SELECT id, status FROM action_run_job WHERE status IN (?, ?, ?, ?)", StatusUnknown, StatusWaiting, StatusRunning, StatusBlocked)
+	rows, err := db.Query(
+		"SELECT id, status FROM action_run_job WHERE status IN (?, ?, ?, ?)",
+		StatusUnknown, StatusWaiting, StatusRunning, StatusBlocked)
 	if err != nil {
 		return err
 	}
@@ -424,6 +426,8 @@ func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
 	previousJobs = &jobs
 
 	if incompleteJobs == 0 {
+		slog.Debug("Found no incomplete jobs, requesting instance stop in 30s")
+		time.Sleep(30 * time.Second)
 		s.stop <- struct{}{}
 	} else if newRunningJobs > 0 {
 		slog.Debug(fmt.Sprintf("Found %d new running jobs", newRunningJobs))
