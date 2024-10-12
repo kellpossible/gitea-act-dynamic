@@ -326,8 +326,11 @@ type Job struct {
 	Status Status
 }
 
-// If we have incomplete jobs, request a start if not already running.
-// Each time a new job enters the StatusRunning status we request a start.
+// If we have incomplete jobs, request a start if not already running. Each time
+// a new job enters the StatusRunning status we request a start, the idea here
+// is that if we don't get any progress (new jobs starting) then eventually the
+// timeout will kick in and stop the instance to avoid wasting money on stuck
+// jobs.
 func (s *DatabaseWatcherService) Serve(context.Context) error {
 	if s.cfg.DbFile == nil {
 		return fmt.Errorf("DbFile is nil in Config")
