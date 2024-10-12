@@ -453,31 +453,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	ID := os.Getenv("GARD__INSTANCE_ID")
+	ID := os.Getenv("GAD__INSTANCE_ID")
 	if ID == "" {
-		slog.Error("GARD__INSTANCE_ID environment variable is not set")
+		slog.Error("GAD__INSTANCE_ID environment variable is not set")
 		os.Exit(1)
 	}
-	password := os.Getenv("GARD__PASSWORD")
+	password := os.Getenv("GAD__PASSWORD")
 	if password == "" {
-		slog.Error("GARD__PASSWORD environment variable is not set")
+		slog.Error("GAD__PASSWORD environment variable is not set")
 		os.Exit(1)
 	}
-	timeoutEnv := os.Getenv("GARD__TIMEOUT")
+	timeoutEnv := os.Getenv("GAD__TIMEOUT")
 	if timeoutEnv == "" {
-		slog.Error("GARD__TIMEOUT environment variable is not set")
+		slog.Error("GAD__TIMEOUT environment variable is not set")
 		os.Exit(1)
 	}
 	timeout, err := time.ParseDuration(timeoutEnv)
 	if err != nil {
-		slog.Error("Error parsing GARD__TIMEOUT environment variable as duration", "error", err)
+		slog.Error("Error parsing GAD__TIMEOUT environment variable as duration", "error", err)
 		os.Exit(1)
 	}
-	address := os.Getenv("GARD__ADDRESS")
+	address := os.Getenv("GAD__ADDRESS")
 	if address == "" {
 		address = ":8080"
 	}
-	dbFileS := os.Getenv("GARD__DB_FILE")
+	dbFileS := os.Getenv("GAD__DB_FILE")
 	dbFile := &dbFileS
 	if *dbFile == "" {
 		dbFile = nil
