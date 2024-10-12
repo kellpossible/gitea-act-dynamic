@@ -384,7 +384,7 @@ func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
 	}
 
 	waitingJobs := 0
-	incompleteJobs := 0 // jobs that are either waiting or started
+	incompleteJobs := 0 // jobs that are either waiting or aldready started
 	newRunningJobs := 0
 
 	previousRunningJobs := make(map[int]Job)
@@ -409,9 +409,13 @@ func (s *DatabaseWatcherService) Update(db *sql.DB, previousJobs *[]Job) error {
 			waitingJobs += 1
 			break s
 		case StatusUnknown:
+			incompleteJobs += 1
+			waitingJobs += 1
 			// Not sure what to do here
 			break s
 		case StatusBlocked:
+			incompleteJobs += 1
+			waitingJobs += 1
 			// Not sure what to do here
 			break s
 		}
