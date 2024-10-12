@@ -260,7 +260,7 @@ func (s *InstancemanagerService) Serve(ctx context.Context) error {
 					err := stopEC2Instance(s.cfg.aws, s.cfg.InstanceID)
 					if err == nil {
 						slog.Info("Successfully stopped EC2 instance", "ID", s.cfg.InstanceID)
-						instanceRunning = true
+						instanceRunning = false
 					} else {
 						slog.Error("Error stopping EC2 Instance", "error", err, "ID", s.cfg.InstanceID)
 						return err
